@@ -1,0 +1,78 @@
+// Prisma schema para Veya
+// Modelo de datos según VEYA.md
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../generated/prisma"
+  // El proyecto es CommonJS (sin "type": "module" en package.json); sin esto
+  // Prisma detecta mal el formato por el "module: nodenext" del tsconfig y
+  // genera código ESM (import.meta.url) que rompe en runtime.
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Hash del refresh token vigente (rotación simple, no está en el doc original
+  // pero es necesario para poder invalidar sesiones en /auth/logout y /auth/refresh).
+  refreshTokenHash String? @map("refresh_token_hash")
+
+  userContents UserContent[]
+
+  @@map("users")
+}
+
+model Content {
+  id            String   @id @default(uuid()) @db.Uuid
+  source        String // tmdb | anilist
+  externalId    String   @map("external_id")
+  type          String // movie | series | anime
+  title         String
+  originalTitle String?  @map("original_title")
+  posterUrl     String?  @map("poster_url")
+  backdropUrl   String?  @map("backdrop_url")
+  overview      String?
+  genres        String[]
+  releaseDate   DateTime? @map("release_date") @db.Date
+  metadata      Json?
+  cachedAt      DateTime  @default(now()) @map("cached_at") @db.Timestamptz(6)
+
+  userContents UserContent[]
+
+  // Constraint única necesaria para poder cachear con upsert por
+  // (source, externalId) sin duplicar filas; el índice pedido en el doc
+  // queda cubierto por esta misma combinación.
+  @@unique([source, externalId], name: "idx_contents_external")
+  @@map("contents")
+}
+
+model UserContent {
+  id             String    @id @default(uuid()) @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
+  contentId      String    @map("content_id") @db.Uuid
+  status         String // pendiente | viendo | terminado | abandonado
+  isFavorite     Boolean   @default(false) @map("is_favorite")
+  rating         Int?      @db.SmallInt
+  currentSeason  Int?      @map("current_season")
+  currentEpisode Int?      @map("current_episode")
+  addedAt        DateTime  @default(now()) @map("added_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  finishedAt     DateTime? @map("finished_at") @db.Timestamptz(6)
+  notes          String?
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, contentId], name: "uq_user_content")
+  @@index([userId], name: "idx_user_contents_user")
+  @@index([userId, status], name: "idx_user_contents_status")
+  @@index([userId, updatedAt(sort: Desc)], name: "idx_user_contents_updated")
+  @@map("user_contents")
+}

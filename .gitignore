@@ -1,0 +1,15 @@
+node_modules
+# Keep environment variables out of version control
+.env
+
+/generated/prisma
+dist
+coverage
+.DS_Store
+*.log
+
+# Docs de agentes IA que agrega `prisma init`/`prisma generate`, no son del proyecto
+.agents/
+.windsurf/
+.claude/skills/
+skills-lock.json
