@@ -1,12 +1,18 @@
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  app.enableCors();
+  app.use(helmet());
+  // La app RN ignora CORS; esto solo restringe a clientes web. Sin
+  // CORS_ORIGIN queda abierto, igual que antes.
+  app.enableCors({
+    origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : true,
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({
