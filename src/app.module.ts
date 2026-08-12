@@ -1,5 +1,8 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import configuration from './config/configuration';
@@ -20,6 +23,7 @@ import { RecommendationsModule } from './recommendations/recommendations.module'
       load: [configuration],
       validationSchema: envValidationSchema,
     }),
+    ThrottlerModule.forRoot({ throttlers: [{ limit: 120, ttl: 60000 }] }),
     PrismaModule,
     AuthModule,
     UsersModule,
@@ -30,6 +34,11 @@ import { RecommendationsModule } from './recommendations/recommendations.module'
     RecommendationsModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // Auth fail-closed: todo endpoint exige JWT salvo que se marque @SkipAuth.
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+  ],
 })
 export class AppModule {}
