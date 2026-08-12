@@ -31,8 +31,8 @@ const SEARCH_QUERY = `
 `;
 
 const BY_GENRE_QUERY = `
-  query ($genre: String, $perPage: Int) {
-    Page(page: 1, perPage: $perPage) {
+  query ($genre: String, $perPage: Int, $page: Int) {
+    Page(page: $page, perPage: $perPage) {
       media(genre: $genre, type: ANIME, sort: POPULARITY_DESC) {
         ${MEDIA_FIELDS}
       }
@@ -89,10 +89,15 @@ export class AnilistService {
     return res?.data.Page.media ?? [];
   }
 
-  async discoverByGenre(genre: string, perPage = 20): Promise<AniListMedia[]> {
+  async discoverByGenre(
+    genre: string,
+    perPage = 20,
+    page = 1,
+  ): Promise<AniListMedia[]> {
     const res = await this.query<AniListPageResponse>(BY_GENRE_QUERY, {
       genre,
       perPage,
+      page,
     });
     return res?.data.Page.media ?? [];
   }

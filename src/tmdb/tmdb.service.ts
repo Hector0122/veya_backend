@@ -56,10 +56,15 @@ export class TmdbService {
     }
   }
 
-  /** Búsqueda por género, usada por el motor de recomendaciones. */
+  /**
+   * Búsqueda por género, usada por el motor de recomendaciones.
+   * `page` permite paginar más allá del top-más-popular cuando el motor de
+   * recomendaciones necesita ampliar el pool de candidatos (rotación).
+   */
   async discoverByGenres(
     mediaType: 'movie' | 'tv',
     genreIds: number[],
+    page = 1,
   ): Promise<TmdbSearchResponse> {
     try {
       const { data } = await this.http.get<TmdbSearchResponse>(
@@ -68,6 +73,7 @@ export class TmdbService {
           params: {
             with_genres: genreIds.join(','),
             sort_by: 'popularity.desc',
+            page,
           },
         },
       );

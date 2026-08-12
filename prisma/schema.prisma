@@ -24,7 +24,8 @@ model User {
   // pero es necesario para poder invalidar sesiones en /auth/logout y /auth/refresh).
   refreshTokenHash String? @map("refresh_token_hash")
 
-  userContents UserContent[]
+  userContents       UserContent[]
+  recommendationLogs RecommendationLog[]
 
   @@map("users")
 }
@@ -44,7 +45,8 @@ model Content {
   metadata      Json?
   cachedAt      DateTime  @default(now()) @map("cached_at") @db.Timestamptz(6)
 
-  userContents UserContent[]
+  userContents       UserContent[]
+  recommendationLogs RecommendationLog[]
 
   // Constraint única necesaria para poder cachear con upsert por
   // (source, externalId) sin duplicar filas; el índice pedido en el doc
@@ -75,4 +77,21 @@ model UserContent {
   @@index([userId, status], name: "idx_user_contents_status")
   @@index([userId, updatedAt(sort: Desc)], name: "idx_user_contents_updated")
   @@map("user_contents")
+}
+
+// Registro de qué se le recomendó a cada usuario y cuándo, usado por
+// RecommendationsService para rotar resultados entre requests en vez de
+// devolver siempre el mismo top-N (ver openspec/changes/improve-recommendations-quality).
+model RecommendationLog {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  contentId     String   @map("content_id") @db.Uuid
+  recommendedAt DateTime @default(now()) @map("recommended_at") @db.Timestamptz(6)
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, contentId], name: "uq_recommendation_log")
+  @@index([userId, recommendedAt], name: "idx_recommendation_log_user_recommended")
+  @@map("recommendation_log")
 }
