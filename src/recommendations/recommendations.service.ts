@@ -166,17 +166,31 @@ export class RecommendationsService {
     topGenres: string[],
     page: number,
   ): Promise<NormalizedContent[]> {
+    const movieGenreIds = mapTmdbGenreNamesToIds(topGenres, 'movie');
+    const tvGenreIds = mapTmdbGenreNamesToIds(topGenres, 'tv');
+
+    // Los géneros de la lista del usuario pueden venir de AniList (nombres
+    // en inglés, p.ej. "Action") sin equivalente en el diccionario TMDB
+    // (español, p.ej. "Acción") — si ninguno mapea, `with_genres` quedaría
+    // vacío y TMDB devolvería su listado popular genérico sin filtrar,
+    // coleándose como si fuera personalizado. Mejor no pedirlo.
     const [tmdbMovies, tmdbTv, anilistResults] = await Promise.all([
-      this.tmdb.discoverByGenres(
-        'movie',
-        mapTmdbGenreNamesToIds(topGenres, 'movie'),
-        page,
-      ),
-      this.tmdb.discoverByGenres(
-        'tv',
-        mapTmdbGenreNamesToIds(topGenres, 'tv'),
-        page,
-      ),
+      movieGenreIds.length > 0
+        ? this.tmdb.discoverByGenres('movie', movieGenreIds, page)
+        : Promise.resolve({
+            page,
+            results: [],
+            total_pages: 0,
+            total_results: 0,
+          }),
+      tvGenreIds.length > 0
+        ? this.tmdb.discoverByGenres('tv', tvGenreIds, page)
+        : Promise.resolve({
+            page,
+            results: [],
+            total_pages: 0,
+            total_results: 0,
+          }),
       Promise.all(
         topGenres.map((genre) => this.anilist.discoverByGenre(genre, 20, page)),
       ).then((r) => r.flat()),
