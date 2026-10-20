@@ -26,6 +26,7 @@ model User {
 
   userContents       UserContent[]
   recommendationLogs RecommendationLog[]
+  bookSuggestions    BookSuggestion[]
 
   @@map("users")
 }
@@ -47,6 +48,7 @@ model Content {
 
   userContents       UserContent[]
   recommendationLogs RecommendationLog[]
+  bookSuggestions    BookSuggestion[]
 
   // Constraint única necesaria para poder cachear con upsert por
   // (source, externalId) sin duplicar filas; el índice pedido en el doc
@@ -94,4 +96,28 @@ model RecommendationLog {
   @@unique([userId, contentId], name: "uq_recommendation_log")
   @@index([userId, recommendedAt], name: "idx_recommendation_log_user_recommended")
   @@map("recommendation_log")
+}
+
+// Libros sugeridos a un usuario (con IA o por géneros) y lo que hizo con cada
+// uno. Se conservan después de vencer para no volver a sugerir lo mismo
+// durante el enfriamiento; "dismissed" excluye el libro para siempre (ver
+// openspec/changes/migrate-book-recommendations-from-vellum).
+model BookSuggestion {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  contentId String   @map("content_id") @db.Uuid
+  status    String // suggested | saved | dismissed
+  source    String // ai | genre | trending
+  synopsis  String?
+  reason    String?
+  basedOn   String[] @map("based_on")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, contentId], name: "uq_book_suggestion")
+  @@index([userId, status], name: "idx_book_suggestions_user_status")
+  @@map("book_suggestions")
 }

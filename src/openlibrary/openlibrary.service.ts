@@ -42,6 +42,27 @@ export class OpenLibraryService {
     }
   }
 
+  /** Búsqueda por campos, más precisa que `search` para comprobar que un
+   *  libro sugerido por la IA existe. */
+  async searchByTitleAuthor(
+    title: string,
+    author: string,
+    limit = 5,
+  ): Promise<OpenLibrarySearchDoc[]> {
+    try {
+      const { data } = await this.http.get<OpenLibrarySearchResponse>(
+        '/search.json',
+        { params: { title, author, limit, fields: SEARCH_FIELDS } },
+      );
+      return data.docs ?? [];
+    } catch (error) {
+      this.logger.warn(
+        `searchByTitleAuthor falló: ${(error as Error).message}`,
+      );
+      return [];
+    }
+  }
+
   async getWork(workId: string): Promise<OpenLibraryWork | null> {
     try {
       const { data } = await this.http.get<OpenLibraryWork>(
