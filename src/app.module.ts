@@ -13,6 +13,7 @@ import { UsersModule } from './users/users.module';
 import { TmdbModule } from './tmdb/tmdb.module';
 import { AnilistModule } from './anilist/anilist.module';
 import { OpenLibraryModule } from './openlibrary/openlibrary.module';
+import { AiModule } from './ai/ai.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { TrackingModule } from './tracking/tracking.module';
 import { RecommendationsModule } from './recommendations/recommendations.module';
@@ -31,6 +32,7 @@ import { RecommendationsModule } from './recommendations/recommendations.module'
     TmdbModule,
     AnilistModule,
     OpenLibraryModule,
+    AiModule,
     CatalogModule,
     TrackingModule,
     RecommendationsModule,

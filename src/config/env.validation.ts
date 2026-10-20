@@ -14,4 +14,10 @@ export const envValidationSchema = Joi.object({
   TMDB_BASE_URL: Joi.string().default('https://api.themoviedb.org/3'),
   ANILIST_BASE_URL: Joi.string().default('https://graphql.anilist.co'),
   OPEN_LIBRARY_BASE_URL: Joi.string().default('https://openlibrary.org'),
+  // IA de recomendaciones de libros: opcional, sin keys se usa el motor de
+  // géneros.
+  GROQ_API_KEY: Joi.string().allow('').optional(),
+  GROQ_MODEL: Joi.string().default('openai/gpt-oss-120b'),
+  GEMINI_API_KEY: Joi.string().allow('').optional(),
+  GEMINI_MODEL: Joi.string().default('gemini-flash-latest'),
 });

@@ -18,4 +18,10 @@ export default () => ({
   openLibrary: {
     baseUrl: process.env.OPEN_LIBRARY_BASE_URL ?? 'https://openlibrary.org',
   },
+  ai: {
+    groqApiKey: process.env.GROQ_API_KEY,
+    groqModel: process.env.GROQ_MODEL ?? 'openai/gpt-oss-120b',
+    geminiApiKey: process.env.GEMINI_API_KEY,
+    geminiModel: process.env.GEMINI_MODEL ?? 'gemini-flash-latest',
+  },
 });

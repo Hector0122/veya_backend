@@ -10,6 +10,7 @@ import {
 } from '../catalog/catalog.normalizer';
 import { NormalizedContent } from '../catalog/types/normalized-content.type';
 import type { Content } from '../../generated/prisma/client';
+import { ContentType } from '../common/constants/content.constants';
 
 const TOP_GENRES_COUNT = 3;
 const RESULT_LIMIT = 20;
@@ -65,8 +66,9 @@ export class RecommendationsService {
   async forUser(
     userId: string,
   ): Promise<Array<PersonalizedItem | TrendingItem>> {
+    // Los libros tienen su propio motor; aquí solo cuenta lo audiovisual.
     const trackedRows = await this.prisma.userContent.findMany({
-      where: { userId },
+      where: { userId, content: { type: { not: ContentType.BOOK } } },
       include: { content: true },
     });
 
