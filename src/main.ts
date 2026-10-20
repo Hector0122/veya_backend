@@ -1,11 +1,16 @@
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Railway pone un proxy delante: sin esto `req.ip` es la IP del proxy y
+  // todos los usuarios comparten los límites de @Throttle. Un solo salto.
+  app.set('trust proxy', 1);
 
   app.use(helmet());
   // La app RN ignora CORS; esto solo restringe a clientes web. Sin
