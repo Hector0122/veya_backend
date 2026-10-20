@@ -8,6 +8,12 @@ export interface OpenLibrarySearchDoc {
   first_publish_year?: number;
 }
 
+/** `/trending/{period}.json`: mismos campos que un documento de búsqueda,
+ *  sin `subject`. */
+export interface OpenLibraryTrendingResponse {
+  works: OpenLibrarySearchDoc[];
+}
+
 export interface OpenLibrarySearchResponse {
   numFound: number;
   docs: OpenLibrarySearchDoc[];

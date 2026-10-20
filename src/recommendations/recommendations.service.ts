@@ -23,6 +23,23 @@ const WEIGHT_TRACKED = 1;
 const WEIGHT_STRONG = 3;
 const WEIGHT_NEGATIVE = -2;
 
+/** Peso de un registro como señal de género. Compartido con
+ *  BookRecommendationsService para que libros y audiovisual usen la misma
+ *  escala. */
+export function genreWeight(row: {
+  status: string;
+  isFavorite: boolean;
+  rating: number | null;
+}): number {
+  if (row.isFavorite || (row.rating !== null && row.rating >= 4)) {
+    return WEIGHT_STRONG;
+  }
+  if ((row.rating !== null && row.rating <= 2) || row.status === 'abandonado') {
+    return WEIGHT_NEGATIVE;
+  }
+  return WEIGHT_TRACKED;
+}
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const RECOMMENDATION_COOLDOWN_DAYS = 14;
 const RECOMMENDATION_COOLDOWN_MS = RECOMMENDATION_COOLDOWN_DAYS * DAY_MS;
@@ -234,7 +251,7 @@ export class RecommendationsService {
     const scores = new Map<string, number>();
 
     for (const row of rows) {
-      const weight = this.weightFor(row);
+      const weight = genreWeight(row);
       for (const genre of row.content.genres) {
         scores.set(genre, (scores.get(genre) ?? 0) + weight);
       }
@@ -245,22 +262,5 @@ export class RecommendationsService {
       .sort((a, b) => b[1] - a[1])
       .slice(0, TOP_GENRES_COUNT)
       .map(([genre]) => genre);
-  }
-
-  private weightFor(row: {
-    status: string;
-    isFavorite: boolean;
-    rating: number | null;
-  }): number {
-    if (row.isFavorite || (row.rating !== null && row.rating >= 4)) {
-      return WEIGHT_STRONG;
-    }
-    if (
-      (row.rating !== null && row.rating <= 2) ||
-      row.status === 'abandonado'
-    ) {
-      return WEIGHT_NEGATIVE;
-    }
-    return WEIGHT_TRACKED;
   }
 }

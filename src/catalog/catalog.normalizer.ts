@@ -137,7 +137,9 @@ export function normalizeOpenLibrarySearchDoc(
     backdropUrl: null,
     // La búsqueda no trae sinopsis; se completa al abrir el detalle.
     overview: null,
-    genres: normalizeBookSubjects(doc.subject ?? []),
+    // Sin subjects (p. ej. /trending) no se sabe el género: mejor ninguno
+    // que un "Ficción" equivocado.
+    genres: doc.subject?.length ? normalizeBookSubjects(doc.subject) : [],
     releaseDate: yearToDate(doc.first_publish_year),
     metadata: {
       authors: doc.author_name ?? [],

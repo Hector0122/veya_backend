@@ -1,8 +1,20 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { CatalogService } from './catalog.service';
 import { SearchQueryDto } from './dto/search-query.dto';
 import { RecommendationsService } from '../recommendations/recommendations.service';
+import { BookRecommendationsService } from '../recommendations/book-recommendations.service';
+import { RecommendationsQueryDto } from '../recommendations/dto/recommendations-query.dto';
+import { UpdateBookSuggestionDto } from '../recommendations/dto/update-book-suggestion.dto';
 import { SkipAuth } from '../auth/decorators/skip-auth.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/types/authenticated-user.type';
@@ -15,6 +27,7 @@ export class CatalogController {
   constructor(
     private readonly catalogService: CatalogService,
     private readonly recommendationsService: RecommendationsService,
+    private readonly bookRecommendationsService: BookRecommendationsService,
   ) {}
 
   // Rutas estáticas primero: si no, ":id" las capturaría como si fueran un id.
@@ -37,8 +50,36 @@ export class CatalogController {
   }
 
   @Get('recommendations')
-  recommendations(@CurrentUser() user: AuthenticatedUser) {
-    return this.recommendationsService.forUser(user.userId);
+  recommendations(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: RecommendationsQueryDto,
+  ) {
+    return query.type
+      ? this.bookRecommendationsService.forUser(user.userId)
+      : this.recommendationsService.forUser(user.userId);
+  }
+
+  @Post('recommendations/books/refresh')
+  refreshBookRecommendations(@CurrentUser() user: AuthenticatedUser) {
+    return this.bookRecommendationsService.refresh(user.userId);
+  }
+
+  @Get('recommendations/books/saved')
+  savedBooks(@CurrentUser() user: AuthenticatedUser) {
+    return this.bookRecommendationsService.saved(user.userId);
+  }
+
+  @Patch('recommendations/books/:id')
+  updateBookSuggestion(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateBookSuggestionDto,
+  ) {
+    return this.bookRecommendationsService.updateStatus(
+      user.userId,
+      id,
+      dto.status,
+    );
   }
 
   @SkipAuth()

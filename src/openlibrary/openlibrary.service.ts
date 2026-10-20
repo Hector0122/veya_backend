@@ -4,6 +4,7 @@ import axios, { AxiosInstance } from 'axios';
 import {
   OpenLibrarySearchDoc,
   OpenLibrarySearchResponse,
+  OpenLibraryTrendingResponse,
   OpenLibraryWork,
 } from './types/openlibrary.types';
 
@@ -59,6 +60,36 @@ export class OpenLibraryService {
       this.logger.warn(
         `searchByTitleAuthor falló: ${(error as Error).message}`,
       );
+      return [];
+    }
+  }
+
+  /** Libros mejor valorados de un subject; usado por el motor de géneros. */
+  async searchBySubject(
+    subject: string,
+    limit = 30,
+  ): Promise<OpenLibrarySearchDoc[]> {
+    try {
+      const { data } = await this.http.get<OpenLibrarySearchResponse>(
+        '/search.json',
+        { params: { subject, sort: 'rating', limit, fields: SEARCH_FIELDS } },
+      );
+      return data.docs ?? [];
+    } catch (error) {
+      this.logger.warn(`searchBySubject falló: ${(error as Error).message}`);
+      return [];
+    }
+  }
+
+  async getTrending(limit = 30): Promise<OpenLibrarySearchDoc[]> {
+    try {
+      const { data } = await this.http.get<OpenLibraryTrendingResponse>(
+        '/trending/weekly.json',
+        { params: { limit } },
+      );
+      return data.works ?? [];
+    } catch (error) {
+      this.logger.warn(`getTrending falló: ${(error as Error).message}`);
       return [];
     }
   }
