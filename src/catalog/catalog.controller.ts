@@ -25,6 +25,12 @@ export class CatalogController {
   }
 
   @SkipAuth()
+  @Get('books/search')
+  searchBooks(@Query() query: SearchQueryDto) {
+    return this.catalogService.searchBooks(query.q);
+  }
+
+  @SkipAuth()
   @Get('trending')
   trending() {
     return this.catalogService.trending();

@@ -6,6 +6,12 @@ import { TMDB_BACKDROP_BASE, TMDB_POSTER_BASE } from '../tmdb/tmdb.service';
 import { mapTmdbGenreIds } from '../tmdb/tmdb-genres';
 import { TmdbDetails, TmdbSearchResultItem } from '../tmdb/types/tmdb.types';
 import { AniListMedia } from '../anilist/types/anilist.types';
+import { OPEN_LIBRARY_COVER_BASE } from '../openlibrary/openlibrary.service';
+import { normalizeBookSubjects } from '../openlibrary/book-genres';
+import {
+  OpenLibrarySearchDoc,
+  OpenLibraryWork,
+} from '../openlibrary/types/openlibrary.types';
 import { NormalizedContent } from './types/normalized-content.type';
 
 function stripHtml(html?: string | null): string | null {
@@ -100,5 +106,68 @@ export function normalizeAniListMedia(media: AniListMedia): NormalizedContent {
       status: media.status ?? null,
       episodes: media.episodes ?? null,
     },
+  };
+}
+
+function openLibraryCover(coverId?: number | null): string | null {
+  return coverId && coverId > 0
+    ? `${OPEN_LIBRARY_COVER_BASE}/${coverId}-L.jpg`
+    : null;
+}
+
+function yearToDate(year?: number | null): Date | null {
+  return year != null ? new Date(Date.UTC(year, 0, 1)) : null;
+}
+
+/** "/works/OL20073906W" -> "OL20073906W" */
+function openLibraryWorkId(key: string): string {
+  return key.replace(/^\/works\//, '');
+}
+
+export function normalizeOpenLibrarySearchDoc(
+  doc: OpenLibrarySearchDoc,
+): NormalizedContent {
+  return {
+    source: ContentSource.OPEN_LIBRARY,
+    externalId: openLibraryWorkId(doc.key),
+    type: ContentType.BOOK,
+    title: doc.title || 'Sin título',
+    originalTitle: null,
+    posterUrl: openLibraryCover(doc.cover_i),
+    backdropUrl: null,
+    // La búsqueda no trae sinopsis; se completa al abrir el detalle.
+    overview: null,
+    genres: normalizeBookSubjects(doc.subject ?? []),
+    releaseDate: yearToDate(doc.first_publish_year),
+    metadata: {
+      authors: doc.author_name ?? [],
+      firstPublishYear: doc.first_publish_year ?? null,
+    },
+  };
+}
+
+/** El work de Open Library no trae nombres de autor, así que se conservan
+ *  los que ya estaban en el cache (vienen de la búsqueda). */
+export function normalizeOpenLibraryWork(
+  work: OpenLibraryWork,
+  cached: { metadata: unknown; releaseDate: Date | null },
+): NormalizedContent {
+  const description =
+    typeof work.description === 'string'
+      ? work.description
+      : (work.description?.value ?? null);
+
+  return {
+    source: ContentSource.OPEN_LIBRARY,
+    externalId: openLibraryWorkId(work.key),
+    type: ContentType.BOOK,
+    title: work.title || 'Sin título',
+    originalTitle: null,
+    posterUrl: openLibraryCover(work.covers?.[0]),
+    backdropUrl: null,
+    overview: description?.trim() || null,
+    genres: normalizeBookSubjects(work.subjects ?? []),
+    releaseDate: cached.releaseDate,
+    metadata: cached.metadata ?? {},
   };
 }

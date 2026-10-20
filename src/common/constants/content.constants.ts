@@ -11,10 +11,12 @@ export enum ContentType {
   MOVIE = 'movie',
   SERIES = 'series',
   ANIME = 'anime',
+  BOOK = 'book',
 }
 
 /** Origen/catálogo externo del contenido. */
 export enum ContentSource {
   TMDB = 'tmdb',
   ANILIST = 'anilist',
+  OPEN_LIBRARY = 'openlibrary',
 }

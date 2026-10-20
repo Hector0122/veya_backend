@@ -13,4 +13,5 @@ export const envValidationSchema = Joi.object({
   TMDB_API_KEY: Joi.string().allow('').optional(),
   TMDB_BASE_URL: Joi.string().default('https://api.themoviedb.org/3'),
   ANILIST_BASE_URL: Joi.string().default('https://graphql.anilist.co'),
+  OPEN_LIBRARY_BASE_URL: Joi.string().default('https://openlibrary.org'),
 });

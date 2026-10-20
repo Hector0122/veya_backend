@@ -2,9 +2,13 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TmdbService } from '../tmdb/tmdb.service';
 import { AnilistService } from '../anilist/anilist.service';
+import { OpenLibraryService } from '../openlibrary/openlibrary.service';
+import type { Content } from '../../generated/prisma/client';
 import { NormalizedContent } from './types/normalized-content.type';
 import {
   normalizeAniListMedia,
+  normalizeOpenLibrarySearchDoc,
+  normalizeOpenLibraryWork,
   normalizeTmdbDetails,
   normalizeTmdbSearchItem,
 } from './catalog.normalizer';
@@ -15,6 +19,7 @@ export class CatalogService {
     private readonly prisma: PrismaService,
     private readonly tmdb: TmdbService,
     private readonly anilist: AnilistService,
+    private readonly openLibrary: OpenLibraryService,
   ) {}
 
   /** Búsqueda unificada: TMDB (películas/series) + AniList (anime) en paralelo. */
@@ -32,6 +37,13 @@ export class CatalogService {
     ];
 
     return this.cacheAll(normalized);
+  }
+
+  /** Búsqueda de libros (Open Library). Separada de `search` para que los
+   *  libros no se mezclen con películas, series y anime. */
+  async searchBooks(query: string) {
+    const docs = await this.openLibrary.search(query);
+    return this.cacheAll(docs.map(normalizeOpenLibrarySearchDoc));
   }
 
   async trending() {
@@ -57,11 +69,7 @@ export class CatalogService {
       throw new NotFoundException('Contenido no encontrado');
     }
 
-    const fresh = await this.refreshFromSource(
-      cached.source,
-      cached.externalId,
-      cached.type,
-    );
+    const fresh = await this.refreshFromSource(cached);
     if (!fresh) return cached;
 
     return this.prisma.content.update({
@@ -71,10 +79,10 @@ export class CatalogService {
   }
 
   private async refreshFromSource(
-    source: string,
-    externalId: string,
-    type: string,
+    cached: Content,
   ): Promise<NormalizedContent | null> {
+    const { source, externalId, type } = cached;
+
     if (source === 'tmdb') {
       const mediaType = type === 'series' ? 'tv' : 'movie';
       const details =
@@ -87,6 +95,11 @@ export class CatalogService {
     if (source === 'anilist') {
       const media = await this.anilist.getById(Number(externalId));
       return media ? normalizeAniListMedia(media) : null;
+    }
+
+    if (source === 'openlibrary') {
+      const work = await this.openLibrary.getWork(externalId);
+      return work ? normalizeOpenLibraryWork(work, cached) : null;
     }
 
     return null;

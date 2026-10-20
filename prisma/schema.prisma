@@ -32,9 +32,9 @@ model User {
 
 model Content {
   id            String   @id @default(uuid()) @db.Uuid
-  source        String // tmdb | anilist
+  source        String // tmdb | anilist | openlibrary
   externalId    String   @map("external_id")
-  type          String // movie | series | anime
+  type          String // movie | series | anime | book
   title         String
   originalTitle String?  @map("original_title")
   posterUrl     String?  @map("poster_url")

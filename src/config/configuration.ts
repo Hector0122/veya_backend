@@ -15,4 +15,7 @@ export default () => ({
   anilist: {
     baseUrl: process.env.ANILIST_BASE_URL ?? 'https://graphql.anilist.co',
   },
+  openLibrary: {
+    baseUrl: process.env.OPEN_LIBRARY_BASE_URL ?? 'https://openlibrary.org',
+  },
 });
