@@ -40,17 +40,27 @@ export class TrackingService {
     });
     if (!content) throw new NotFoundException('Contenido no encontrado');
 
-    // Veya no registra lectura en curso: un libro en la lista es un libro leído.
     const isBook = content.type === (ContentType.BOOK as string);
-    const status = isBook
-      ? ContentStatus.TERMINADO
-      : (dto.status ?? ContentStatus.PENDIENTE);
+    if (!isBook && dto.totalPages !== undefined) {
+      throw new BadRequestException('Solo los libros tienen páginas');
+    }
+
+    // Sin estado, un libro se registra como leído: es lo que mandan las
+    // versiones de la app anteriores a los estados de lectura.
+    const status =
+      dto.status ??
+      (isBook ? ContentStatus.TERMINADO : ContentStatus.PENDIENTE);
+    const totalPages =
+      dto.totalPages ?? (isBook ? pagesOf(content) : undefined);
+    const finished = status === ContentStatus.TERMINADO;
     const data = {
       status,
       rating: dto.rating,
       isFavorite: dto.isFavorite,
       notes: dto.notes,
-      ...(isBook ? { finishedAt: new Date() } : {}),
+      ...(totalPages ? { totalPages } : {}),
+      ...(finished ? { finishedAt: new Date() } : {}),
+      ...(finished && isBook && totalPages ? { currentPage: totalPages } : {}),
     };
 
     return this.prisma.userContent.upsert({
@@ -63,15 +73,31 @@ export class TrackingService {
 
   async update(userId: string, id: string, dto: UpdateTrackingDto) {
     const existing = await this.findOwned(userId, id);
+    const isBook = existing.content.type === (ContentType.BOOK as string);
 
     if (
-      existing.content.type === (ContentType.BOOK as string) &&
-      (dto.status !== undefined ||
-        dto.currentSeason !== undefined ||
-        dto.currentEpisode !== undefined)
+      isBook &&
+      (dto.currentSeason !== undefined || dto.currentEpisode !== undefined)
     ) {
       throw new BadRequestException(
-        'Un libro solo admite calificación, favorito y notas',
+        'Un libro no tiene temporadas ni episodios',
+      );
+    }
+    if (
+      !isBook &&
+      (dto.currentPage !== undefined || dto.totalPages !== undefined)
+    ) {
+      throw new BadRequestException('Solo los libros tienen páginas');
+    }
+
+    const totalPages = dto.totalPages ?? existing.totalPages;
+    if (
+      dto.currentPage !== undefined &&
+      totalPages !== null &&
+      dto.currentPage > totalPages
+    ) {
+      throw new BadRequestException(
+        `La página actual no puede pasar de ${totalPages}`,
       );
     }
 
@@ -82,9 +108,27 @@ export class TrackingService {
           ? null
           : existing.finishedAt;
 
+    // Terminar un libro lo deja en la última página; achicar el total no
+    // puede dejar la página actual por encima.
+    let currentPage = dto.currentPage;
+    if (isBook && currentPage === undefined) {
+      if (dto.status === ContentStatus.TERMINADO && totalPages !== null) {
+        currentPage = totalPages;
+      } else if (
+        dto.totalPages !== undefined &&
+        existing.currentPage !== null
+      ) {
+        currentPage = Math.min(existing.currentPage, dto.totalPages);
+      }
+    }
+
     return this.prisma.userContent.update({
       where: { id },
-      data: { ...dto, finishedAt },
+      data: {
+        ...dto,
+        ...(currentPage !== undefined ? { currentPage } : {}),
+        finishedAt,
+      },
       include: { content: true },
     });
   }
@@ -106,4 +150,10 @@ export class TrackingService {
     }
     return row;
   }
+}
+
+/** Páginas que Open Library estima para el libro (`metadata.pages`). */
+function pagesOf(content: { metadata: unknown }): number | undefined {
+  const pages = (content.metadata as { pages?: unknown } | null)?.pages;
+  return typeof pages === 'number' && pages > 0 ? pages : undefined;
 }

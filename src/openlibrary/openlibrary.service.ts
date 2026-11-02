@@ -11,7 +11,7 @@ import {
 export const OPEN_LIBRARY_COVER_BASE = 'https://covers.openlibrary.org/b/id';
 
 const SEARCH_FIELDS =
-  'key,title,author_name,subject,cover_i,first_publish_year';
+  'key,title,author_name,subject,cover_i,first_publish_year,number_of_pages_median';
 
 @Injectable()
 export class OpenLibraryService {

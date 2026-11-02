@@ -161,21 +161,43 @@ export class BookRecommendationsService {
       throw new ForbiddenException('No podés modificar esta sugerencia');
     }
 
-    return this.prisma.bookSuggestion.update({
+    const updated = await this.prisma.bookSuggestion.update({
       where: { id },
       data: { status },
       include: { content: true },
     });
+
+    // Guardar una sugerencia la agrega como "quiero leer"; si el libro ya
+    // estaba en la lista se respeta su estado.
+    if (status === SuggestionStatus.SAVED) {
+      await this.prisma.userContent.upsert({
+        where: {
+          uq_user_content: { userId, contentId: suggestion.contentId },
+        },
+        create: {
+          userId,
+          contentId: suggestion.contentId,
+          status: ContentStatus.PENDIENTE,
+        },
+        update: {},
+      });
+    }
+
+    return updated;
   }
 
-  /** Lista "para leer después": guardados que el usuario todavía no marcó
-   *  como leídos. */
+  /** Guardados que siguen en "quiero leer". Lo usan las versiones de la app
+   *  anteriores a los estados de lectura; las nuevas leen /tracking. */
   saved(userId: string) {
     return this.prisma.bookSuggestion.findMany({
       where: {
         userId,
         status: SuggestionStatus.SAVED,
-        content: { userContents: { none: { userId } } },
+        content: {
+          userContents: {
+            none: { userId, status: { not: ContentStatus.PENDIENTE } },
+          },
+        },
       },
       include: { content: true },
       orderBy: { createdAt: 'desc' },
@@ -284,12 +306,19 @@ export class BookRecommendationsService {
     const seen = audiovisual
       .filter((row) => !isLiked(row) && !isDisliked(row))
       .slice(0, MAX_AUDIOVISUAL_POSITIVE - liked.length);
-    const disliked = audiovisual
+    const disliked = [...audiovisual, ...books]
       .filter(isDisliked)
       .slice(0, MAX_AUDIOVISUAL_NEGATIVE);
 
+    // Solo cuenta como gusto lo que se leyó o se está leyendo; "quiero leer"
+    // no dice nada todavía y lo abandonado es señal negativa.
+    const abandoned = (row: TrackedRow) =>
+      row.status === (ContentStatus.ABANDONADO as string);
+    const pending = (row: TrackedRow) =>
+      row.status === (ContentStatus.PENDIENTE as string);
     // Calificados primero: son la señal más clara.
-    const readBooks = [...books]
+    const readBooks = books
+      .filter((row) => !abandoned(row) && !pending(row))
       .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
       .slice(0, MAX_READ_BOOKS);
 

@@ -6,6 +6,7 @@ export interface OpenLibrarySearchDoc {
   subject?: string[];
   cover_i?: number;
   first_publish_year?: number;
+  number_of_pages_median?: number;
 }
 
 /** `/trending/{period}.json`: mismos campos que un documento de búsqueda,

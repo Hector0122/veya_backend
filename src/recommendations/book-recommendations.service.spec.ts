@@ -104,7 +104,10 @@ function setup({
   const stored: { contentId: string; create: Record<string, unknown> }[] = [];
 
   const prisma = {
-    userContent: { findMany: jest.fn().mockResolvedValue(rows) },
+    userContent: {
+      findMany: jest.fn().mockResolvedValue(rows),
+      upsert: jest.fn(),
+    },
     bookSuggestion: {
       findMany: jest.fn(({ where }: { where: { status?: string } }) =>
         // findCurrent filtra por status "suggested"; loadUserData, por OR.
@@ -211,6 +214,29 @@ describe('BookRecommendationsService', () => {
       await service.forUser(USER);
 
       expect(stored.map((s) => s.contentId)).toEqual(['content-OL3W']);
+    });
+
+    it('only treats read books as taste; abandoned ones as dislikes', async () => {
+      const { service, ai } = setup({
+        rows: [
+          darkRow,
+          row('book', 'Quiero Leerlo', ['Fantasía'], { status: 'pendiente' }),
+          row('book', 'Lo Dejé', ['Romance'], { status: 'abandonado' }),
+          recursionRow,
+        ],
+        aiText: aiResponse([['Gone Girl', 'Gillian Flynn']]),
+      });
+
+      await service.forUser(USER);
+
+      const prompt = (ai.generateJson.mock.calls[0] as unknown[])[0] as string;
+      const [, block] = /\n<datos>\n([\s\S]*?)\n<\/datos>/.exec(prompt)!;
+      const json = JSON.parse(block) as {
+        noLeGusto: { titulo: string }[];
+      };
+      expect(block).toContain('Recursion');
+      expect(block).not.toContain('Quiero Leerlo');
+      expect(json.noLeGusto.map((item) => item.titulo)).toContain('Lo Dejé');
     });
 
     it('uses AI genres when Open Library only says Fiction', async () => {
@@ -396,6 +422,7 @@ describe('BookRecommendationsService', () => {
       prisma.bookSuggestion.findUnique.mockResolvedValue({
         id: 's-1',
         userId: USER,
+        contentId: 'c-1',
       });
 
       await service.updateStatus(USER, 's-1', 'saved');
@@ -403,6 +430,25 @@ describe('BookRecommendationsService', () => {
       expect(prisma.bookSuggestion.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: { status: 'saved' } }),
       );
+      // Queda en la lista como "quiero leer" sin pisar un estado previo.
+      expect(prisma.userContent.upsert).toHaveBeenCalledWith({
+        where: { uq_user_content: { userId: USER, contentId: 'c-1' } },
+        create: { userId: USER, contentId: 'c-1', status: 'pendiente' },
+        update: {},
+      });
+    });
+
+    it('does not add a dismissed suggestion to the list', async () => {
+      const { service, prisma } = setup();
+      prisma.bookSuggestion.findUnique.mockResolvedValue({
+        id: 's-1',
+        userId: USER,
+        contentId: 'c-1',
+      });
+
+      await service.updateStatus(USER, 's-1', 'dismissed');
+
+      expect(prisma.userContent.upsert).not.toHaveBeenCalled();
     });
 
     it("rejects another user's suggestion", async () => {
@@ -428,7 +474,7 @@ describe('BookRecommendationsService', () => {
     });
   });
 
-  it('lists saved books the user has not read yet', async () => {
+  it('lists saved books still marked as "want to read"', async () => {
     const { service, prisma } = setup();
 
     await service.saved(USER);
@@ -438,7 +484,11 @@ describe('BookRecommendationsService', () => {
         where: {
           userId: USER,
           status: 'saved',
-          content: { userContents: { none: { userId: USER } } },
+          content: {
+            userContents: {
+              none: { userId: USER, status: { not: 'pendiente' } },
+            },
+          },
         },
       }),
     );

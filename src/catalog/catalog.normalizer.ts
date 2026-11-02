@@ -144,6 +144,7 @@ export function normalizeOpenLibrarySearchDoc(
     metadata: {
       authors: doc.author_name ?? [],
       firstPublishYear: doc.first_publish_year ?? null,
+      pages: doc.number_of_pages_median ?? null,
     },
   };
 }

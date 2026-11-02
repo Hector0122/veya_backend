@@ -35,6 +35,16 @@ export class UpdateTrackingDto {
   currentEpisode?: number;
 
   @IsOptional()
+  @IsInt()
+  @Min(0)
+  currentPage?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  totalPages?: number;
+
+  @IsOptional()
   @IsString()
   notes?: string;
 }

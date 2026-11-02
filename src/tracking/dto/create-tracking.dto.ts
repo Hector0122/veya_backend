@@ -14,10 +14,11 @@ export class CreateTrackingDto {
   @IsUUID()
   contentId: string;
 
-  // Ignorado para libros: un libro registrado siempre es un libro leído.
+  // Sin estado: pendiente para lo audiovisual y leído para libros (así lo
+  // mandan las versiones de la app anteriores a los estados de lectura).
   @IsOptional()
   @IsEnum(ContentStatus)
-  status?: ContentStatus = ContentStatus.PENDIENTE;
+  status?: ContentStatus;
 
   // Opcionales al crear para poder marcar un libro leído y calificarlo en un
   // solo request.
@@ -34,4 +35,9 @@ export class CreateTrackingDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  totalPages?: number;
 }

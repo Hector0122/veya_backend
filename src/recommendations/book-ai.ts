@@ -40,6 +40,7 @@ const TYPE_LABEL: Record<string, string> = {
   movie: 'película',
   series: 'serie',
   anime: 'anime',
+  book: 'libro',
 };
 
 function bookSentiment(book: TasteSignal['readBooks'][number]): string {

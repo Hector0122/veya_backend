@@ -61,11 +61,17 @@ model UserContent {
   id             String    @id @default(uuid()) @db.Uuid
   userId         String    @map("user_id") @db.Uuid
   contentId      String    @map("content_id") @db.Uuid
-  status         String // pendiente | viendo | terminado | abandonado
+  // pendiente | viendo | terminado | abandonado (en libros: quiero leer |
+  // leyendo | leído | abandonado)
+  status         String
   isFavorite     Boolean   @default(false) @map("is_favorite")
   rating         Int?      @db.SmallInt
   currentSeason  Int?      @map("current_season")
   currentEpisode Int?      @map("current_episode")
+  // Progreso de lectura (solo libros). totalPages lo puede ajustar el
+  // usuario porque cada edición tiene distinta cantidad de páginas.
+  currentPage    Int?      @map("current_page")
+  totalPages     Int?      @map("total_pages")
   addedAt        DateTime  @default(now()) @map("added_at") @db.Timestamptz(6)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   finishedAt     DateTime? @map("finished_at") @db.Timestamptz(6)
