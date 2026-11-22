@@ -50,10 +50,10 @@ model Content {
   recommendationLogs RecommendationLog[]
   bookSuggestions    BookSuggestion[]
 
-  // Constraint única necesaria para poder cachear con upsert por
-  // (source, externalId) sin duplicar filas; el índice pedido en el doc
-  // queda cubierto por esta misma combinación.
-  @@unique([source, externalId], name: "idx_contents_external")
+  // Constraint única para cachear con upsert sin duplicar filas. Incluye
+  // `type` porque en TMDB las películas y las series tienen ids propios que
+  // se repiten (la película 1399 y la serie 1399 son cosas distintas).
+  @@unique([source, type, externalId], name: "idx_contents_external")
   @@map("contents")
 }
 
