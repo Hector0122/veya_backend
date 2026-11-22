@@ -74,7 +74,13 @@ export class CatalogService {
 
     return this.prisma.content.update({
       where: { id },
-      data: { ...fresh, cachedAt: new Date() },
+      data: {
+        ...fresh,
+        // El work de Open Library muchas veces no trae `covers` aunque la
+        // búsqueda sí tenía portada: no borrar la que ya estaba.
+        posterUrl: fresh.posterUrl ?? cached.posterUrl,
+        cachedAt: new Date(),
+      },
     });
   }
 
@@ -105,22 +111,31 @@ export class CatalogService {
     return null;
   }
 
-  /** Upsert en batch por (source, externalId); devuelve las filas ya con id interno.
+  /** Upsert en batch por (source, type, externalId); devuelve las filas ya con id interno.
    *  Público: lo reutiliza RecommendationsService para cachear sus resultados. */
   async cacheAll(items: NormalizedContent[]) {
     return Promise.all(
-      items.map((item) =>
-        this.prisma.content.upsert({
+      items.map((item) => {
+        // Un resultado sin portada (p. ej. un doc de Open Library sin
+        // cover_i) no debe borrar la que ya estaba guardada.
+        const { posterUrl, backdropUrl, ...rest } = item;
+        return this.prisma.content.upsert({
           where: {
             idx_contents_external: {
               source: item.source,
+              type: item.type,
               externalId: item.externalId,
             },
           },
           create: item,
-          update: { ...item, cachedAt: new Date() },
-        }),
-      ),
+          update: {
+            ...rest,
+            ...(posterUrl ? { posterUrl } : {}),
+            ...(backdropUrl ? { backdropUrl } : {}),
+            cachedAt: new Date(),
+          },
+        });
+      }),
     );
   }
 }
