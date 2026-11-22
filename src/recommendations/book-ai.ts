@@ -33,8 +33,9 @@ export interface AiBookSuggestion {
   basedOn: string[];
 }
 
-export const BOOKS_TO_REQUEST = 5;
-const MAX_PARSED = 8;
+// Más que SUGGESTIONS_SHOWN: algunos no pasan la verificación en Open Library.
+export const BOOKS_TO_REQUEST = 9;
+const MAX_PARSED = 12;
 
 const TYPE_LABEL: Record<string, string> = {
   movie: 'película',

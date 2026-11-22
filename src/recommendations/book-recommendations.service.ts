@@ -38,7 +38,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const SUGGESTION_TTL_MS = DAY_MS;
 // Igual que el enfriamiento de las recomendaciones audiovisuales.
 const COOLDOWN_MS = 14 * DAY_MS;
-const SUGGESTIONS_SHOWN = 3;
+// Siempre se intenta mostrar esta cantidad: lo que la IA no alcanza a dar
+// (libros inventados, ya leídos) se completa con géneros y populares.
+export const SUGGESTIONS_SHOWN = 6;
 
 // Límites del prompt, para que no crezca sin fin con mucho historial.
 const MAX_READ_BOOKS = 20;
@@ -80,6 +82,7 @@ interface UserData {
 
 interface SuggestionToStore {
   doc: OpenLibrarySearchDoc;
+  source: SuggestionSource;
   genres?: BookGenre[];
   synopsis: string | null;
   reason: string | null;
@@ -109,23 +112,46 @@ export class BookRecommendationsService {
   ) {}
 
   /**
-   * Sugerencias de libros vigentes del usuario. Se reutilizan durante 24 h;
-   * con `refresh` (o si no hay vigentes) se generan nuevas: primero con IA y,
-   * si no se puede, con el motor de géneros (o populares sin señal). Si todo
-   * falla, se devuelven las que hubiera.
+   * Sugerencias de libros vigentes del usuario, siempre `SUGGESTIONS_SHOWN`
+   * si se puede. Un lote se reutiliza durante 24 h; con `refresh` (o sin
+   * vigentes) se genera uno nuevo: primero con IA y lo que falte con el motor
+   * de géneros y luego con populares. Si al guardar o descartar quedan menos,
+   * se completan los huecos sin IA (para no gastar cuota en cada clic). Si
+   * todo falla, se devuelven las que hubiera.
    */
   async forUser(userId: string, { refresh = false } = {}) {
     const now = new Date();
-    if (!refresh) {
-      const current = await this.findCurrent(userId, now);
-      if (current.length > 0) return current;
-    }
+    const current = await this.findCurrent(userId, now);
+    if (!refresh && current.length >= SUGGESTIONS_SHOWN) return current;
+
+    const topUp = !refresh && current.length > 0;
+    const needed = SUGGESTIONS_SHOWN - (topUp ? current.length : 0);
 
     const data = await this.loadUserData(userId, now);
-    const generated =
-      (await this.generateWithAi(userId, data, now)) ??
-      (await this.generateByGenres(userId, data, now));
-    return generated ?? this.findCurrent(userId, now);
+    const seen = new Set([
+      ...data.excludedExternalIds,
+      ...current.map((s) => s.content.externalId),
+    ]);
+
+    const items: SuggestionToStore[] = [];
+    if (!topUp) {
+      items.push(...(await this.generateWithAi(data, needed, seen)));
+    }
+    if (items.length < needed) {
+      items.push(
+        ...(await this.generateByGenres(data, needed - items.length, seen)),
+      );
+    }
+    if (items.length < needed) {
+      items.push(...(await this.generateTrending(needed - items.length, seen)));
+    }
+
+    this.logger.log(
+      `Libros (${topUp ? 'completar' : 'lote nuevo'}): ${items.length}/${needed} ` +
+        `[${items.map((i) => i.source).join(', ')}]`,
+    );
+    if (items.length === 0) return current;
+    return this.store(userId, items, now, { replace: !topUp });
   }
 
   /** Fuerza un lote nuevo, con un límite por usuario. */
@@ -135,7 +161,8 @@ export class BookRecommendationsService {
     // última hora son los `createdAt` distintos.
     const batches = await this.prisma.bookSuggestion.groupBy({
       by: ['createdAt'],
-      where: { userId, createdAt: { gte: since } },
+      // Solo los lotes con IA gastan cuota; completar huecos no cuenta.
+      where: { userId, source: 'ai', createdAt: { gte: since } },
     });
     if (batches.length >= MAX_GENERATIONS_PER_HOUR) {
       throw new HttpException(
@@ -256,34 +283,33 @@ export class BookRecommendationsService {
 
   // ---- IA ----------------------------------------------------------------
 
-  private async generateWithAi(userId: string, data: UserData, now: Date) {
-    if (!this.ai.isConfigured()) return null;
+  private async generateWithAi(
+    data: UserData,
+    limit: number,
+    seen: Set<string>,
+  ): Promise<SuggestionToStore[]> {
+    if (!this.ai.isConfigured()) return [];
 
     const { taste, knownTitles } = this.buildTaste(data);
-    if (!hasPositiveSignal(taste)) return null;
+    if (!hasPositiveSignal(taste)) return [];
 
     const result = await this.ai.generateJson(buildBookPrompt(taste));
-    if (!result) return null;
+    if (!result) return [];
 
     const parsed = parseAiSuggestions(result.text, knownTitles);
-    const verified = await this.verify(parsed, data.excludedExternalIds);
+    const verified = await this.verify(parsed, seen, limit);
     this.logger.log(
       `IA (${result.provider}): ${parsed.length} sugeridos, ${verified.length} verificados`,
     );
-    if (verified.length === 0) return null;
 
-    return this.store(
-      userId,
-      verified.slice(0, SUGGESTIONS_SHOWN).map(({ suggestion, doc }) => ({
-        doc,
-        genres: suggestion.genres,
-        synopsis: suggestion.synopsis,
-        reason: suggestion.reason,
-        basedOn: suggestion.basedOn,
-      })),
-      'ai',
-      now,
-    );
+    return verified.map(({ suggestion, doc }) => ({
+      doc,
+      source: 'ai' as const,
+      genres: suggestion.genres,
+      synopsis: suggestion.synopsis,
+      reason: suggestion.reason,
+      basedOn: suggestion.basedOn,
+    }));
   }
 
   private buildTaste({ books, audiovisual, pastSuggestions }: UserData) {
@@ -353,10 +379,11 @@ export class BookRecommendationsService {
   }
 
   /** Se queda solo con libros que existen en Open Library y que no están
-   *  excluidos. */
+   *  en `seen` (que se actualiza con los elegidos), hasta `limit`. */
   private async verify(
     suggestions: AiBookSuggestion[],
-    excludedExternalIds: Set<string>,
+    seen: Set<string>,
+    limit: number,
   ) {
     const matches = await Promise.all(
       suggestions.map(async (suggestion) => {
@@ -380,21 +407,18 @@ export class BookRecommendationsService {
       }),
     );
 
-    const seen = new Set(excludedExternalIds);
-    return matches.filter(
-      (
-        match,
-      ): match is {
-        suggestion: AiBookSuggestion;
-        doc: OpenLibrarySearchDoc;
-      } => {
-        if (!match) return false;
-        const id = workId(match.doc);
-        if (seen.has(id)) return false;
-        seen.add(id);
-        return true;
-      },
-    );
+    const picked: {
+      suggestion: AiBookSuggestion;
+      doc: OpenLibrarySearchDoc;
+    }[] = [];
+    for (const match of matches) {
+      if (!match || picked.length >= limit) continue;
+      const id = workId(match.doc);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      picked.push(match);
+    }
+    return picked;
   }
 
   // ---- Motor de géneros (respaldo) ---------------------------------------
@@ -457,9 +481,13 @@ export class BookRecommendationsService {
       }));
   }
 
-  private async generateByGenres(userId: string, data: UserData, now: Date) {
+  private async generateByGenres(
+    data: UserData,
+    limit: number,
+    seen: Set<string>,
+  ): Promise<SuggestionToStore[]> {
     const topGenres = this.rankBookGenres(data);
-    if (topGenres.length === 0) return this.generateTrending(userId, data, now);
+    if (topGenres.length === 0) return [];
 
     const perGenre = await Promise.all(
       topGenres.map(async ({ genre, basedOn }) => {
@@ -478,42 +506,51 @@ export class BookRecommendationsService {
       }),
     );
 
-    // Se alternan los géneros para que no salgan tres libros del mismo.
+    // Se alternan los géneros para que no salgan seguidos los del mismo.
     const picked: SuggestionToStore[] = [];
-    const seen = new Set(data.excludedExternalIds);
-    for (let i = 0; picked.length < SUGGESTIONS_SHOWN; i++) {
+    for (let i = 0; picked.length < limit; i++) {
       const round = perGenre.map((list) => list[i]).filter(Boolean);
       if (round.length === 0) break;
       for (const { doc, basedOn } of round) {
         const id = workId(doc);
-        if (seen.has(id) || picked.length >= SUGGESTIONS_SHOWN) continue;
+        if (seen.has(id) || picked.length >= limit) continue;
         seen.add(id);
-        picked.push({ doc, synopsis: null, reason: null, basedOn });
+        picked.push({
+          doc,
+          source: 'genre',
+          synopsis: null,
+          reason: null,
+          basedOn,
+        });
       }
     }
 
     this.logger.log(
       `Géneros (${topGenres.map((g) => g.genre).join(', ')}): ${picked.length} sugeridos`,
     );
-    if (picked.length === 0) return null;
-    return this.store(userId, picked, 'genre', now);
+    return picked;
   }
 
-  /** Sin ninguna señal positiva: libros populares, marcados como tales. */
-  private async generateTrending(userId: string, data: UserData, now: Date) {
-    const seen = new Set(data.excludedExternalIds);
-    const picked = (await this.openLibrary.getTrending())
-      .filter((doc) => {
-        const id = workId(doc);
-        if (seen.has(id)) return false;
-        seen.add(id);
-        return true;
-      })
-      .slice(0, SUGGESTIONS_SHOWN)
-      .map((doc) => ({ doc, synopsis: null, reason: null, basedOn: [] }));
-
-    if (picked.length === 0) return null;
-    return this.store(userId, picked, 'trending', now);
+  /** Populares, para usuarios sin señal o para completar lo que falte. */
+  private async generateTrending(
+    limit: number,
+    seen: Set<string>,
+  ): Promise<SuggestionToStore[]> {
+    const picked: SuggestionToStore[] = [];
+    for (const doc of await this.openLibrary.getTrending()) {
+      if (picked.length >= limit) break;
+      const id = workId(doc);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      picked.push({
+        doc,
+        source: 'trending',
+        synopsis: null,
+        reason: null,
+        basedOn: [],
+      });
+    }
+    return picked;
   }
 
   // ---- Guardado ------------------------------------------------------------
@@ -521,8 +558,8 @@ export class BookRecommendationsService {
   private async store(
     userId: string,
     items: SuggestionToStore[],
-    source: SuggestionSource,
     now: Date,
+    { replace }: { replace: boolean },
   ) {
     const contents = await this.catalogService.cacheAll(
       items.map(({ doc, genres }) => {
@@ -537,21 +574,34 @@ export class BookRecommendationsService {
       }),
     );
 
-    // Las sugerencias anteriores dejan de mostrarse, pero se conservan para
-    // el enfriamiento.
-    await this.prisma.bookSuggestion.updateMany({
-      where: {
-        userId,
-        status: SuggestionStatus.SUGGESTED,
-        expiresAt: { gt: now },
-      },
-      data: { expiresAt: now },
-    });
+    // En un lote nuevo las sugerencias anteriores dejan de mostrarse, pero se
+    // conservan para el enfriamiento. Al completar huecos se quedan y las
+    // nuevas vencen junto con ellas.
+    let expiresAt = new Date(now.getTime() + SUGGESTION_TTL_MS);
+    if (replace) {
+      await this.prisma.bookSuggestion.updateMany({
+        where: {
+          userId,
+          status: SuggestionStatus.SUGGESTED,
+          expiresAt: { gt: now },
+        },
+        data: { expiresAt: now },
+      });
+    } else {
+      const current = await this.prisma.bookSuggestion.findFirst({
+        where: {
+          userId,
+          status: SuggestionStatus.SUGGESTED,
+          expiresAt: { gt: now },
+        },
+        orderBy: { expiresAt: 'asc' },
+      });
+      if (current) expiresAt = current.expiresAt;
+    }
 
-    const expiresAt = new Date(now.getTime() + SUGGESTION_TTL_MS);
     await Promise.all(
       contents.map((content, i) => {
-        const { synopsis, reason, basedOn } = items[i];
+        const { source, synopsis, reason, basedOn } = items[i];
         const data = {
           status: SuggestionStatus.SUGGESTED,
           source,

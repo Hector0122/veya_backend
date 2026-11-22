@@ -93,6 +93,14 @@ const recursionRow = row('book', 'Recursion', ['Suspenso'], {
   externalId: 'OL9W',
 });
 
+function suggestion(externalId: string) {
+  return {
+    id: `s-${externalId}`,
+    status: 'suggested',
+    content: { externalId },
+  };
+}
+
 function setup({
   rows = [] as unknown[],
   current = [] as unknown[],
@@ -118,6 +126,7 @@ function setup({
         ),
       ),
       updateMany: jest.fn(),
+      findFirst: jest.fn().mockResolvedValue(null),
       groupBy: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn(),
       update: jest.fn((args: unknown) => args),
@@ -174,7 +183,7 @@ function setup({
 
 describe('BookRecommendationsService', () => {
   describe('with AI', () => {
-    it('stores up to 3 verified AI suggestions with their reason', async () => {
+    it('always fills 6 suggestions: AI first, then genres and trending', async () => {
       const { service, stored } = setup({
         rows: [darkRow],
         aiText: aiResponse([
@@ -191,8 +200,19 @@ describe('BookRecommendationsService', () => {
         'content-OL1W',
         'content-OL2W',
         'content-OL3W',
+        'content-OL4W',
+        'content-OL5W',
+        'content-OL8W',
       ]);
-      expect(result).toHaveLength(3);
+      expect(stored.map((s) => s.create.source)).toEqual([
+        'ai',
+        'ai',
+        'ai',
+        'genre',
+        'genre',
+        'trending',
+      ]);
+      expect(result).toHaveLength(6);
       expect(stored[0].create).toMatchObject({
         status: 'suggested',
         source: 'ai',
@@ -213,7 +233,9 @@ describe('BookRecommendationsService', () => {
 
       await service.forUser(USER);
 
-      expect(stored.map((s) => s.contentId)).toEqual(['content-OL3W']);
+      const fromAi = stored.filter((s) => s.create.source === 'ai');
+      expect(fromAi.map((s) => s.contentId)).toEqual(['content-OL3W']);
+      expect(stored.map((s) => s.contentId)).not.toContain('content-OL9W');
     });
 
     it('only treats read books as taste; abandoned ones as dislikes', async () => {
@@ -251,13 +273,32 @@ describe('BookRecommendationsService', () => {
       expect(items[0].genres).toEqual(['Suspenso']);
     });
 
-    it('reuses current suggestions without generating', async () => {
-      const current = [{ id: 's-1', status: 'suggested' }];
+    it('reuses a full set of current suggestions without generating', async () => {
+      const current = ['A', 'B', 'C', 'D', 'E', 'F'].map(suggestion);
       const { service, ai, openLibrary } = setup({ rows: [darkRow], current });
 
       await expect(service.forUser(USER)).resolves.toEqual(current);
       expect(ai.generateJson).not.toHaveBeenCalled();
       expect(openLibrary.searchBySubject).not.toHaveBeenCalled();
+    });
+
+    it('tops up missing suggestions without AI and keeps the current ones', async () => {
+      const current = ['OL1W', 'OL2W', 'OL3W'].map(suggestion);
+      const { service, ai, prisma, stored } = setup({
+        rows: [darkRow],
+        current,
+      });
+
+      const result = await service.forUser(USER);
+
+      expect(ai.generateJson).not.toHaveBeenCalled();
+      expect(prisma.bookSuggestion.updateMany).not.toHaveBeenCalled();
+      expect(stored.map((s) => s.contentId)).toEqual([
+        'content-OL4W',
+        'content-OL5W',
+        'content-OL8W',
+      ]);
+      expect(result).toHaveLength(6);
     });
   });
 
@@ -275,6 +316,8 @@ describe('BookRecommendationsService', () => {
         'content-OL3W',
         'content-OL4W',
         'content-OL5W',
+        'content-OL8W',
+        'content-OL9W',
       ]);
       expect(stored[0].create).toMatchObject({
         source: 'genre',
@@ -291,7 +334,8 @@ describe('BookRecommendationsService', () => {
 
       await service.forUser(USER);
 
-      expect(stored.map((s) => s.contentId)).toEqual(['content-OL7W']);
+      const fromGenres = stored.filter((s) => s.create.source === 'genre');
+      expect(fromGenres.map((s) => s.contentId)).toEqual(['content-OL7W']);
     });
 
     it('skips books the user already read', async () => {
@@ -337,11 +381,12 @@ describe('BookRecommendationsService', () => {
     });
 
     it('keeps current suggestions when everything fails on refresh', async () => {
-      const current = [{ id: 's-1', status: 'suggested' }];
+      const current = [suggestion('OL1W')];
       const { service, prisma } = setup({
         rows: [darkRow],
         current,
         subjects: {},
+        trending: [],
       });
 
       await expect(service.forUser(USER, { refresh: true })).resolves.toEqual(
@@ -406,7 +451,7 @@ describe('BookRecommendationsService', () => {
     });
 
     it('generates a new batch under the limit', async () => {
-      const current = [{ id: 's-1', status: 'suggested' }];
+      const current = [suggestion('OL1W')];
       const { service, ai } = setup({ rows: [darkRow], current });
 
       await service.refresh(USER);
